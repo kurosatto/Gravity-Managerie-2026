@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1f3d36">
+<title>Gravity Menagerie</title>
+<style>
+  :root {
+    --bg: #12241f;
+    --panel: #1f3d36;
+    --ink: #f4f1e6;
+    --ink-dim: #c8d3c9;
+    --accent: #f6c945;
+    --danger: #e0644f;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--ink);
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none; touch-action: none;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .overlay {
+    position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 16px;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    background: rgba(18, 36, 31, 0.92); text-align: center;
+  }
+  .overlay.show { display: flex; }
+  h1 { margin: 0; font-size: clamp(28px, 7vw, 48px); letter-spacing: 1px; color: var(--accent); text-shadow: 0 3px 0 #0006; }
+  h2 { margin: 0; font-size: clamp(26px, 6vw, 40px); }
+  p { margin: 0; color: var(--ink-dim); max-width: 34em; line-height: 1.4; }
+  .cards {
+    display: flex; gap: 16px; overflow-x: auto; scroll-snap-type: x mandatory;
+    width: 100%; max-width: 900px; padding: 4px 8vw 12px; touch-action: pan-x;
+    scrollbar-width: none;
+  }
+  .cards::-webkit-scrollbar { display: none; }
+  .card {
+    flex: 0 0 min(78vw, 56vh * 1.39, 560px); scroll-snap-align: center;
+    border: 0; padding: 0; background: none; cursor: pointer; position: relative;
+    border-radius: 14px; overflow: hidden; box-shadow: 0 6px 18px #0008;
+    transition: transform .12s;
+  }
+  .card:active { transform: scale(.97); }
+  .card img { width: 100%; display: block; pointer-events: none; }
+  .card span {
+    position: absolute; left: 11%; bottom: 13%; width: 30%;
+    background: var(--accent); color: #2a2a2a; font-weight: bold;
+    font-size: clamp(14px, 3.6vw, 22px); padding: .45em 0; border-radius: 999px;
+    box-shadow: 0 3px 0 #0005;
+  }
+  .card .best {
+    left: auto; right: 9%; bottom: auto; top: 27%; width: auto; background: none;
+    box-shadow: none; color: #333; font-size: clamp(12px, 3vw, 18px); padding: 0;
+  }
+  .btn {
+    border: 0; border-radius: 999px; padding: 12px 28px; font: inherit; font-weight: bold;
+    font-size: 18px; background: var(--accent); color: #2a2a2a; cursor: pointer; box-shadow: 0 3px 0 #0005;
+  }
+  .btn.ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink-dim); box-shadow: none; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  #hud {
+    position: fixed; left: 0; right: 0; top: 0; display: none; align-items: center; gap: 10px;
+    padding: max(10px, env(safe-area-inset-top)) 12px 0; pointer-events: none;
+  }
+  #hud.show { display: flex; }
+  .pill {
+    background: rgba(18, 36, 31, 0.78); border-radius: 999px; padding: 6px 12px;
+    font-weight: bold; font-size: 15px; white-space: nowrap;
+  }
+  #hud .grow { flex: 1; }
+  #hud button { pointer-events: auto; }
+  .icon-btn {
+    border: 0; border-radius: 999px; background: rgba(18, 36, 31, 0.78); color: var(--ink);
+    font: inherit; font-weight: bold; font-size: 15px; padding: 6px 12px; cursor: pointer;
+  }
+  #toolbar {
+    position: fixed; left: 0; right: 0; bottom: 0; display: none; justify-content: center; gap: 8px;
+    padding: 0 12px max(12px, env(safe-area-inset-bottom));
+  }
+  #toolbar.show { display: flex; }
+  #toolbar button {
+    width: 52px; height: 52px; border-radius: 14px; border: 0; padding: 6px;
+    background: rgba(18, 36, 31, 0.8); cursor: pointer;
+  }
+  #toolbar img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  #banner {
+    position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%);
+    font-size: clamp(30px, 9vw, 64px); font-weight: bold; color: var(--accent);
+    text-shadow: 0 4px 0 #0008; pointer-events: none; opacity: 0; transition: opacity .3s;
+  }
+  #banner.show { opacity: 1; }
+  #loading { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <button class="icon-btn" id="pauseBtn" aria-label="Pause">II</button>
+  <span class="pill" id="hudLevel">Level 1</span>
+  <span class="grow"></span>
+  <span class="pill" id="hudFood">Fed 0/4</span>
+  <span class="pill" id="hudTime">20s</span>
+</div>
+
+<div id="toolbar">
+  <button data-spawn="sheep" aria-label="Add sheep"><img src="img/sheep.webp" alt=""></button>
+  <button data-spawn="chicken" aria-label="Add chicken"><img src="img/chicken.webp" alt=""></button>
+  <button data-spawn="rabbit" aria-label="Add rabbit"><img src="img/rabbit.webp" alt=""></button>
+  <button data-spawn="wolf" aria-label="Add wolf"><img src="img/wolf.webp" alt=""></button>
+  <button data-spawn="blackhole" aria-label="Add black hole"><img src="img/blackhole.webp" alt=""></button>
+</div>
+
+<div id="banner"></div>
+
+<div class="overlay" id="menu">
+  <h1>Gravity Menagerie</h1>
+  <div class="cards" id="cards">
+    <button class="card" data-level="0"><img src="img/lvl1.jpg" alt="Level 1"><span>Play</span><span class="best" data-best="0"></span></button>
+    <button class="card" data-level="1"><img src="img/lvl2.jpg" alt="Level 2"><span>Play</span><span class="best" data-best="1"></span></button>
+    <button class="card" data-level="2"><img src="img/lvl3.jpg" alt="Level 3"><span>Play</span><span class="best" data-best="2"></span></button>
+    <button class="card" data-level="space"><img src="img/spacemode.jpg" alt="Space mode"><span>Play</span></button>
+  </div>
+  <p>Drag anywhere to steer the black hole. Its gravity pulls the animals. Guide them to their food, and keep them off the spikes, out of the hole and away from the wolf. Survive 20 seconds per level.</p>
+</div>
+
+<div class="overlay" id="pauseMenu">
+  <h2>Paused</h2>
+  <div class="row">
+    <button class="btn" id="resumeBtn">Resume</button>
+    <button class="btn ghost" id="restartBtn">Restart</button>
+    <button class="btn ghost" data-menu>Main Menu</button>
+  </div>
+</div>
+
+<div class="overlay" id="endMenu">
+  <h2 id="endTitle">Game Over</h2>
+  <p id="endText"></p>
+  <div class="row">
+    <button class="btn" id="retryBtn">Try Again</button>
+    <button class="btn ghost" data-menu>Main Menu</button>
+  </div>
+</div>
+
+<div id="loading">Loading…</div>
+
+<script>
+"use strict";
+// Gravity Menagerie: touch/web port of the Processing game by Rebecca Taylor and Kursat Mestav.
+// The physics follow the original sketch: every body pulls on every other, the black hole is
+// the heavy one you steer, and the original sizes are kept relative to a 1050x750 screen.
+
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+// ---------- Assets ----------
+const SPRITES = ["angrywolf", "blackhole", "chicken", "dizzychicken", "dizzysheep", "ear", "feed",
+  "haybale", "rabbit", "sheep", "wolf", "worriedchicken", "worriedsheep", "worriedwolf"];
+const BACKGROUNDS = ["level1bg", "space"];
+const img = {};
+function load(name, ext) {
+  return new Promise(res => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = () => res(i);
+    i.src = "img/" + name + "." + ext;
+    img[name] = i;
+  });
+}
+
+// ---------- Sizing (same ratios as the original) ----------
+let W = 0, H = 0, dpr = 1, S = 1;   // S = scale relative to the original 750px-tall screen
+const ORIGINAL_H = 750;
+function sizes() {
+  const base = Math.min(H, W * 1.4);
+  S = base / ORIGINAL_H;
+  return {
+    sheep: base / 10, chicken: base / 15, rabbit: base / 15, wolf: base / 10,
+    blackhole: base / 15, hayBale: base / 20, feed: base / 20,
+    spikeW: Math.max(18, base / 21), // original: screenW*screenH/50000 on 1050x750
+  };
+}
+let SZ = {};
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  SZ = sizes();
+}
+
+// ---------- Game constants (from the Processing sketch) ----------
+const G = 0.1;
+const TIMESTEP = 0.01;     // per 60Hz tick, as in the original draw loop
+const TICK = 1000 / 60;
+const LEVEL_SECONDS = 20;
+const FOOD_POINTS = 5;
+const FARM = new Set(["sheep", "chicken", "rabbit"]);
+
+class Animal {
+  constructor(type, x, y) {
+    this.type = type;
+    this.x = x; this.y = y;
+    this.vx = 0; this.vy = 0;
+    this.ax = 0; this.ay = 0;
+    this.d = SZ[type];
+    this.mass = type === "blackhole" ? 300000 * S * S : this.d * this.d;
+    this.angle = Math.random() * Math.PI * 2;
+    this.spin = type === "blackhole" ? 0.6 : (Math.random() - 0.5) * 0.4; // rad/s
+    this.dead = false;
+    this.worriedEdge = false; this.worriedNear = false; this.angry = false;
+    this.flap = Math.random() * 10;
+  }
+}
+
+class Food {
+  constructor(type, x, y) {
+    this.type = type; this.x = x; this.y = y;
+    this.d = SZ[type]; this.collected = false; this.pop = 0;
+  }
+}
+
+// ---------- Levels ----------
+function makeLevel(n) {
+  const a = [new Animal("blackhole", W / 2, H / 2)];
+  const q = [[W / 4, H / 4], [3 * W / 4, H / 4], [W / 4, 3 * H / 4], [3 * W / 4, 3 * H / 4]];
+  const f = [[W / 6, H / 6], [5 * W / 6, H / 6], [W / 6, 5 * H / 6], [5 * W / 6, 5 * H / 6]];
+  const animal = n === 0 ? "rabbit" : "sheep";
+  const food = n === 0 ? "feed" : "hayBale";
+  for (const [x, y] of q) a.push(new Animal(animal, x, y));
+  if (n === 2) a.push(new Animal("wolf", W / 2, 3 * H / 4));
+  return { animals: a, foods: f.map(([x, y]) => new Food(food, x, y)) };
+}
+
+// ---------- State ----------
+let mode = "menu";       // menu | level | space | paused | over
+let pausedFrom = null;
+let levelIndex = 0;
+let animals = [], foods = [];
+let levelTime = 0;       // seconds into the current level
+let totalTime = 0;       // seconds survived across levels in this run
+let fed = 0;
+let startLevel = 0;
+let camX = 0, camY = 0;  // space mode camera offset (world -> screen = world + cam)
+let grabbed = null;      // { animal, offX, offY } or { pan: true }
+let lastPointer = null;
+let bannerTimer = 0;
+
+function bestKey(n) { return "gm-best-" + n; }
+function getBest(n) { try { return +localStorage.getItem(bestKey(n)) || 0; } catch (e) { return 0; } }
+function setBest(n, v) { try { if (v > getBest(n)) localStorage.setItem(bestKey(n), v); } catch (e) {} }
+
+function show(id, on) { document.getElementById(id).classList.toggle("show", on); }
+function showOnly(id) {
+  for (const o of ["menu", "pauseMenu", "endMenu"]) show(o, o === id);
+}
+function banner(text) {
+  const b = document.getElementById("banner");
+  b.textContent = text; b.classList.add("show");
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => b.classList.remove("show"), 1300);
+}
+
+function startLevelRun(n) {
+  startLevel = n;
+  totalTime = 0; fed = 0;
+  loadLevel(n);
+  tryFullscreen();
+}
+function loadLevel(n) {
+  levelIndex = n;
+  const l = makeLevel(n);
+  animals = l.animals; foods = l.foods;
+  levelTime = -READY_SECONDS; grabbed = null;
+  camX = 0; camY = 0;
+  mode = "level";
+  showOnly(null);
+  show("hud", true); show("toolbar", false);
+  document.getElementById("pauseBtn").style.display = "";
+  banner("Level " + (n + 1));
+  updateHud();
+}
+function startSpace() {
+  animals = [new Animal("sheep", W / 3, H / 2), new Animal("sheep", 2 * W / 3, H / 2)];
+  foods = [];
+  camX = 0; camY = 0; grabbed = null;
+  mode = "space";
+  showOnly(null);
+  show("hud", true); show("toolbar", true);
+  document.getElementById("hudLevel").textContent = "Space Mode";
+  document.getElementById("hudFood").style.display = "none";
+  document.getElementById("hudTime").style.display = "none";
+  banner("Space Mode");
+  tryFullscreen();
+}
+function toMenu() {
+  mode = "menu"; grabbed = null;
+  show("hud", false); show("toolbar", false);
+  document.getElementById("hudFood").style.display = "";
+  document.getElementById("hudTime").style.display = "";
+  for (const el of document.querySelectorAll("[data-best]")) {
+    const b = getBest(+el.dataset.best);
+    el.textContent = b ? b + " pts" : "";
+  }
+  showOnly("menu");
+}
+function score() { return Math.floor(totalTime + Math.max(0, levelTime)) + fed * FOOD_POINTS; }
+function gameOver(won) {
+  mode = "over"; grabbed = null;
+  const s = score();
+  setBest(startLevel, s);
+  document.getElementById("endTitle").textContent = won ? "You saved the menagerie!" : "Game Over";
+  document.getElementById("endText").textContent = "Your score is " + s +
+    " (" + Math.floor(totalTime + Math.max(0, levelTime)) + "s survived, " + fed + " fed)";
+  show("hud", false);
+  showOnly("endMenu");
+}
+function updateHud() {
+  if (mode !== "level") return;
+  document.getElementById("hudLevel").textContent = "Level " + (levelIndex + 1);
+  const eaten = foods.filter(f => f.collected).length;
+  document.getElementById("hudFood").textContent = "Fed " + eaten + "/" + foods.length;
+  document.getElementById("hudTime").textContent = Math.max(0, Math.min(LEVEL_SECONDS, Math.ceil(LEVEL_SECONDS - levelTime))) + "s";
+}
+
+// ---------- Physics ----------
+const READY_SECONDS = 1.2;  // short freeze at level start while the banner shows
+function step() {
+  const inLevel = mode === "level";
+  if (inLevel && levelTime < 0) { levelTime += 1 / 60; return; }
+  for (const a of animals) {
+    if (grabbed && grabbed.animal === a) continue;
+    a.vx += a.ax * TIMESTEP; a.vy += a.ay * TIMESTEP;
+    a.x += a.vx * TIMESTEP; a.y += a.vy * TIMESTEP;
+  }
+  for (const a of animals) { a.ax = 0; a.ay = 0; a.worriedNear = false; a.angry = false; }
+
+  for (let p = 0; p < animals.length; p++) {
+    const a = animals[p];
+    for (let q = 0; q < animals.length; q++) {
+      if (p === q) continue;
+      const b = animals[q];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const r = Math.hypot(dx, dy);
+      if (r === 0) continue;
+
+      if (r < 1.5 * a.d) {
+        if (a.type === "wolf" && (b.type === "sheep" || b.type === "chicken")) a.angry = true;
+        if (b.type === "wolf" && (a.type === "sheep" || a.type === "chicken")) a.worriedNear = true;
+        else if (b.type === "blackhole") a.worriedNear = true;
+      }
+
+      if (r < b.d / 2 + a.d / 2) {
+        // Overlapping: deaths, then bounce between farm animals (and wolf vs wolf).
+        if (b.type === "wolf" && a.type !== "wolf") { if (r < b.d / 2) a.dead = true; }
+        else if (b.type === "blackhole" && a.type !== "blackhole") { if (r < a.d / 2) a.dead = true; }
+        if ((FARM.has(a.type) && FARM.has(b.type)) || (a.type === "wolf" && b.type === "wolf")) {
+          if (p < q) collide(a, b, dx, dy, r);
+        }
+      } else {
+        // Same force law as the original: acc = G * m_other * (delta) / r^2
+        const k = G * b.mass / (r * r);
+        a.ax += dx * k; a.ay += dy * k;
+      }
+    }
+
+    if (inLevel && a.type !== "blackhole") {
+      const m = 1.5 * a.d, h = a.d / 2, sp = SZ.spikeW * 1.2 * 0.6;
+      a.worriedEdge = a.x < m || a.x > W - m || a.y < m || a.y > H - m;
+      if (a.x - h < sp || a.x + h > W - sp || a.y - h < sp || a.y + h > H - sp) a.dead = true;
+    } else if (inLevel && a.type === "blackhole") {
+      // Keep the black hole on screen.
+      const h = a.d / 2;
+      if (a.x < h) { a.x = h; a.vx = 0; } if (a.x > W - h) { a.x = W - h; a.vx = 0; }
+      if (a.y < h) { a.y = h; a.vy = 0; } if (a.y > H - h) { a.y = H - h; a.vy = 0; }
+    } else {
+      // Space mode: bounce inside a world twice the size of the screen.
+      a.worriedEdge = false;
+      const h = a.d / 2;
+      if (a.x < -W / 2 + h) { a.x = -W / 2 + h; a.vx = -a.vx; }
+      if (a.x > 1.5 * W - h) { a.x = 1.5 * W - h; a.vx = -a.vx; }
+      if (a.y < -H / 2 + h) { a.y = -H / 2 + h; a.vy = -a.vy; }
+      if (a.y > 1.5 * H - h) { a.y = 1.5 * H - h; a.vy = -a.vy; }
+    }
+  }
+
+  for (const a of animals) {
+    a.angle += a.spin / 60;
+    if (a.type !== "blackhole") a.spin *= 0.995;
+    a.flap += 1 / 60;
+  }
+
+  for (const f of foods) {
+    if (f.collected) { f.pop += 1 / 60; continue; }
+    for (const a of animals) {
+      if (a.type !== "blackhole" && a.type !== "wolf" && Math.hypot(a.x - f.x, a.y - f.y) < 50 * S + a.d / 4) {
+        f.collected = true; fed++;
+        a.spin += (Math.random() < 0.5 ? -1 : 1) * 2;
+        break;
+      }
+    }
+  }
+
+  if (inLevel) {
+    levelTime += 1 / 60;
+    if (animals.some(a => a.dead)) { gameOver(false); return; }
+    if (levelTime >= LEVEL_SECONDS) {
+      totalTime += levelTime;
+      if (levelIndex >= 2) { levelTime = 0; gameOver(true); return; }
+      loadLevel(levelIndex + 1);
+    }
+  } else {
+    // Sandbox: eaten animals just vanish.
+    animals = animals.filter(a => !a.dead);
+  }
+}
+
+function collide(a, b, dx, dy, r) {
+  // a and b overlap; push apart and exchange momentum along the normal (e = 1 as in the original).
+  const nx = -dx / r, ny = -dy / r;              // from b to a
+  const overlap = (a.d / 2 + b.d / 2) - r;
+  const tot = a.mass + b.mass;
+  a.x += nx * overlap * (b.mass / tot); a.y += ny * overlap * (b.mass / tot);
+  b.x -= nx * overlap * (a.mass / tot); b.y -= ny * overlap * (a.mass / tot);
+  const rvx = a.vx - b.vx, rvy = a.vy - b.vy;
+  const vn = rvx * nx + rvy * ny;
+  if (vn >= 0) return;
+  const e = 1;
+  const j = -(1 + e) * vn / (1 / a.mass + 1 / b.mass);
+  a.vx += j * nx / a.mass; a.vy += j * ny / a.mass;
+  b.vx -= j * nx / b.mass; b.vy -= j * ny / b.mass;
+  // Glancing hits make them spin (and get dizzy).
+  const vt = rvx * -ny + rvy * nx;
+  a.spin += vt / (a.d / 2) * 0.05;
+  b.spin -= vt / (b.d / 2) * 0.05;
+}
+
+// ---------- Drawing ----------
+function drawCover(image, x, y, w, h) {
+  if (!image.naturalWidth) return;
+  const s = Math.max(w / image.naturalWidth, h / image.naturalHeight);
+  const iw = image.naturalWidth * s, ih = image.naturalHeight * s;
+  ctx.drawImage(image, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
+}
+function sprite(a) {
+  const dizzy = Math.abs(a.spin) > 3;
+  const worried = a.worriedEdge || a.worriedNear;
+  switch (a.type) {
+    case "blackhole": return img.blackhole;
+    case "sheep": return dizzy ? img.dizzysheep : worried ? img.worriedsheep : img.sheep;
+    case "chicken": return dizzy ? img.dizzychicken : worried ? img.worriedchicken : img.chicken;
+    case "rabbit": return img.rabbit;
+    case "wolf": return worried ? img.worriedwolf : a.angry ? img.angrywolf : img.wolf;
+  }
+}
+function drawAnimal(a) {
+  ctx.save();
+  ctx.translate(a.x, a.y);
+  ctx.rotate(a.angle);
+  const d = a.d;
+  if (a.type === "rabbit") {
+    const wig = Math.sin(a.flap * 6 + a.spin) * 0.35;
+    const ew = d / 3, eh = 0.75 * d;
+    for (const side of [-1, 1]) {
+      ctx.save();
+      ctx.translate(side * 0.18 * d, -0.35 * d);
+      ctx.rotate(side * (0.15 + wig));
+      ctx.drawImage(img.ear, -ew / 2, -eh, ew, eh);
+      ctx.restore();
+    }
+  }
+  if (a.type === "blackhole") {
+    const g = ctx.createRadialGradient(0, 0, d * 0.2, 0, 0, d * 1.3);
+    g.addColorStop(0, "rgba(40,20,70,0.45)"); g.addColorStop(1, "rgba(40,20,70,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, d * 1.3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.drawImage(sprite(a), -d / 2, -d / 2, d, d);
+  ctx.restore();
+}
+function drawFood(f) {
+  const im = f.type === "feed" ? img.feed : img.haybale;
+  if (f.collected) {
+    if (f.pop > 0.5) return;
+    const t = f.pop / 0.5;
+    ctx.globalAlpha = 1 - t;
+    ctx.drawImage(im, f.x - f.d * (1 + t) / 2, f.y - f.d * (1 + t) / 2, f.d * (1 + t), f.d * (1 + t));
+    ctx.fillStyle = "#2a2a2a"; ctx.font = "bold " + Math.round(18 * Math.max(S, 0.8)) + "px sans-serif";
+    ctx.textAlign = "center"; ctx.fillText("+" + FOOD_POINTS, f.x, f.y - f.d * (0.6 + t));
+    ctx.globalAlpha = 1;
+    return;
+  }
+  const bob = Math.sin(performance.now() / 400 + f.x) * 2 * S;
+  ctx.drawImage(im, f.x - f.d / 2, f.y - f.d / 2 + bob, f.d, f.d);
+}
+function drawSpikes() {
+  const sw = SZ.spikeW, sh = sw * 1.2 * 0.6;
+  ctx.fillStyle = "#5a5a5a"; ctx.strokeStyle = "#2e2e2e"; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x < W; x += sw) {
+    ctx.moveTo(x, 0); ctx.lineTo(x + sw / 2, sh); ctx.lineTo(x + sw, 0);
+    ctx.moveTo(x, H); ctx.lineTo(x + sw / 2, H - sh); ctx.lineTo(x + sw, H);
+  }
+  for (let y = 0; y < H; y += sw) {
+    ctx.moveTo(0, y); ctx.lineTo(sh, y + sw / 2); ctx.lineTo(0, y + sw);
+    ctx.moveTo(W, y); ctx.lineTo(W - sh, y + sw / 2); ctx.lineTo(W, y + sw);
+  }
+  ctx.fill(); ctx.stroke();
+}
+function render() {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  const inSpace = mode === "space" || (mode === "paused" && pausedFrom === "space");
+  if (mode === "menu") { drawCover(img.level1bg, 0, 0, W, H); return; }
+  if (inSpace) {
+    ctx.translate(camX, camY);
+    drawCover(img.space, -W / 2, -H / 2, 2 * W, 2 * H);
+    ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 3;
+    ctx.strokeRect(-W / 2, -H / 2, 2 * W, 2 * H);
+  } else {
+    drawCover(img.level1bg, 0, 0, W, H);
+  }
+  for (const f of foods) drawFood(f);
+  for (const a of animals) if (a.type !== "blackhole") drawAnimal(a);
+  for (const a of animals) if (a.type === "blackhole") drawAnimal(a);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!inSpace) drawSpikes();
+}
+
+// ---------- Input ----------
+function worldPoint(e) { return { x: e.clientX - camX, y: e.clientY - camY }; }
+canvas.addEventListener("pointerdown", e => {
+  if (mode !== "level" && mode !== "space") return;
+  canvas.setPointerCapture(e.pointerId);
+  const p = worldPoint(e);
+  lastPointer = { x: e.clientX, y: e.clientY, id: e.pointerId };
+  if (mode === "level") {
+    // Drag anywhere: the black hole follows your finger's movement, so your finger never hides it.
+    grabbed = { animal: animals[0], relative: true };
+  } else {
+    let best = null, bestD = Infinity;
+    for (const a of animals) {
+      const dd = Math.hypot(a.x - p.x, a.y - p.y);
+      if (dd < Math.max(a.d * 0.75, 30) && dd < bestD) { best = a; bestD = dd; }
+    }
+    grabbed = best ? { animal: best, offX: best.x - p.x, offY: best.y - p.y } : { pan: true };
+  }
+});
+canvas.addEventListener("pointermove", e => {
+  if (!grabbed || !lastPointer || e.pointerId !== lastPointer.id) return;
+  const dx = e.clientX - lastPointer.x, dy = e.clientY - lastPointer.y;
+  lastPointer.x = e.clientX; lastPointer.y = e.clientY;
+  if (grabbed.pan) {
+    camX = Math.max(-W / 2, Math.min(W / 2, camX + dx));
+    camY = Math.max(-H / 2, Math.min(H / 2, camY + dy));
+    return;
+  }
+  const a = grabbed.animal;
+  if (grabbed.relative) { a.x += dx; a.y += dy; }
+  else { const p = worldPoint(e); a.x = p.x + grabbed.offX; a.y = p.y + grabbed.offY; }
+  // Original: speed = mouse delta, so a flick keeps a little momentum.
+  a.vx = dx; a.vy = dy;
+});
+function release(e) {
+  if (lastPointer && e.pointerId === lastPointer.id) {
+    if (grabbed && grabbed.animal && !grabbed.relative) { grabbed.animal.vx *= 60; grabbed.animal.vy *= 60; }
+    grabbed = null; lastPointer = null;
+  }
+}
+canvas.addEventListener("pointerup", release);
+canvas.addEventListener("pointercancel", release);
+
+for (const c of document.querySelectorAll(".card")) {
+  c.addEventListener("click", () => {
+    const l = c.dataset.level;
+    if (l === "space") startSpace(); else startLevelRun(+l);
+  });
+}
+for (const b of document.querySelectorAll("[data-menu]")) b.addEventListener("click", toMenu);
+document.getElementById("pauseBtn").addEventListener("click", pause);
+document.getElementById("resumeBtn").addEventListener("click", resume);
+document.getElementById("restartBtn").addEventListener("click", () => {
+  if (pausedFrom === "space") startSpace(); else startLevelRun(startLevel);
+});
+document.getElementById("retryBtn").addEventListener("click", () => startLevelRun(startLevel));
+for (const b of document.querySelectorAll("[data-spawn]")) {
+  b.addEventListener("click", () => {
+    const x = W / 2 - camX + (Math.random() - 0.5) * W * 0.3;
+    const y = H / 2 - camY + (Math.random() - 0.5) * H * 0.3;
+    animals.push(new Animal(b.dataset.spawn, x, y));
+  });
+}
+
+function pause() {
+  if (mode !== "level" && mode !== "space") return;
+  pausedFrom = mode; mode = "paused"; grabbed = null;
+  showOnly("pauseMenu");
+}
+function resume() {
+  if (mode !== "paused") return;
+  mode = pausedFrom; showOnly(null);
+  last = performance.now();
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+
+function tryFullscreen() {
+  const el = document.documentElement;
+  try {
+    if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  } catch (e) {}
+}
+
+let resizeTimer = 0;
+window.addEventListener("resize", () => {
+  const oldW = W, oldH = H, oldS = S;
+  resize();
+  if (!oldW || !oldH) return;
+  // Keep everything in place proportionally when the phone rotates.
+  const fx = W / oldW, fy = H / oldH, fs = S / oldS;
+  for (const a of animals) {
+    a.x *= fx; a.y *= fy; a.vx *= fs; a.vy *= fs; a.d = SZ[a.type];
+    a.mass = a.type === "blackhole" ? 300000 * S * S : a.d * a.d;
+  }
+  for (const f of foods) { f.x *= fx; f.y *= fy; f.d = SZ[f.type]; }
+  camX *= fx; camY *= fy;
+});
+
+// ---------- Loop ----------
+let last = performance.now(), acc = 0;
+function frame(now) {
+  let dt = now - last; last = now;
+  if (dt > 100) dt = 100;
+  if (mode === "level" || mode === "space") {
+    acc += dt;
+    while (acc >= TICK) {
+      step();
+      acc -= TICK;
+      if (mode !== "level" && mode !== "space") { acc = 0; break; }
+    }
+    updateHud();
+  } else acc = 0;
+  render();
+  requestAnimationFrame(frame);
+}
+
+resize();
+Promise.all([...SPRITES.map(s => load(s, "webp")), ...BACKGROUNDS.map(b => load(b, "jpg"))]).then(() => {
+  document.getElementById("loading").remove();
+  toMenu();
+  requestAnimationFrame(t => { last = t; frame(t); });
+});
+</script>
+</body>
+</html>
