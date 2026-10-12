@@ -39,7 +39,7 @@
   .cards {
     display: flex; gap: 16px; overflow-x: auto; scroll-snap-type: x mandatory;
     width: 100%; max-width: 900px; padding: 4px 8vw 12px; touch-action: pan-x;
-    scrollbar-width: none;
+    scrollbar-width: none; position: relative;
   }
   .cards::-webkit-scrollbar { display: none; }
   .card {
@@ -60,6 +60,11 @@
     left: auto; right: 9%; bottom: auto; top: 27%; width: auto; background: none;
     box-shadow: none; color: #333; font-size: clamp(12px, 3vw, 18px); padding: 0;
   }
+  .chip {
+    border: 2px solid var(--ink-dim); border-radius: 999px; background: transparent; color: var(--ink);
+    font: inherit; font-weight: bold; font-size: 15px; padding: 6px 14px; cursor: pointer;
+  }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #2a2a2a; }
   .btn {
     border: 0; border-radius: 999px; padding: 12px 28px; font: inherit; font-weight: bold;
     font-size: 18px; background: var(--accent); color: #2a2a2a; cursor: pointer; box-shadow: 0 3px 0 #0005;
@@ -129,7 +134,13 @@
     <button class="card" data-level="2"><img src="img/lvl3.jpg" alt="Level 3"><span>Play</span><span class="best" data-best="2"></span></button>
     <button class="card" data-level="space"><img src="img/spacemode.jpg" alt="Space mode"><span>Play</span></button>
   </div>
-  <p>Drag anywhere to steer the black hole. Its gravity pulls the animals. Guide them to their food, and keep them off the spikes, out of the hole and away from the wolf. Survive 20 seconds per level.</p>
+  <div class="row" id="picker">
+    <button class="chip" data-go="0">Level 1</button>
+    <button class="chip" data-go="1">Level 2</button>
+    <button class="chip" data-go="2">Level 3</button>
+    <button class="chip" data-go="3">Space Mode</button>
+  </div>
+  <p>Drag anywhere on the screen to move the black hole. Its gravity pulls the animals toward it. Keep them away from the walls, out of the hole and away from the wolf. Each level lasts 20 seconds, then the next one starts. Your score is how many seconds you last.</p>
 </div>
 
 <div class="overlay" id="pauseMenu">
@@ -180,12 +191,12 @@ function load(name, ext) {
 let W = 0, H = 0, dpr = 1, S = 1;   // S = scale relative to the original 750px-tall screen
 const ORIGINAL_H = 750;
 function sizes() {
-  const base = Math.min(H, W * 1.4);
+  const base = Math.min(W, H);  // the original sizes everything from the short side of the screen
   S = base / ORIGINAL_H;
   return {
     sheep: base / 10, chicken: base / 15, rabbit: base / 15, wolf: base / 10,
     blackhole: base / 15, hayBale: base / 20, feed: base / 20,
-    spikeW: Math.max(18, base / 21), // original: screenW*screenH/50000 on 1050x750
+    spikeW: Math.max(10, 15.75 * S), // original: screenW*screenH/50000 = 15.75 on 1050x750
   };
 }
 let SZ = {};
@@ -200,8 +211,7 @@ function resize() {
 const G = 0.1;
 const TIMESTEP = 0.01;     // per 60Hz tick, as in the original draw loop
 const TICK = 1000 / 60;
-const LEVEL_SECONDS = 20;
-const FOOD_POINTS = 5;
+const LEVEL_SECONDS = 20;  // original levelSeconds: the run timer moves on at 20s, 40s and 60s
 const FARM = new Set(["sheep", "chicken", "rabbit"]);
 
 class Animal {
@@ -244,9 +254,7 @@ let mode = "menu";       // menu | level | space | paused | over
 let pausedFrom = null;
 let levelIndex = 0;
 let animals = [], foods = [];
-let levelTime = 0;       // seconds into the current level
-let totalTime = 0;       // seconds survived across levels in this run
-let fed = 0;
+let runTime = 0;         // seconds since the run started (original timeBegin); this is also the score
 let startLevel = 0;
 let camX = 0, camY = 0;  // space mode camera offset (world -> screen = world + cam)
 let grabbed = null;      // { animal, offX, offY } or { pan: true }
@@ -270,7 +278,7 @@ function banner(text) {
 
 function startLevelRun(n) {
   startLevel = n;
-  totalTime = 0; fed = 0;
+  runTime = 0;
   loadLevel(n);
   tryFullscreen();
 }
@@ -278,7 +286,7 @@ function loadLevel(n) {
   levelIndex = n;
   const l = makeLevel(n);
   animals = l.animals; foods = l.foods;
-  levelTime = -READY_SECONDS; grabbed = null;
+  grabbed = null;
   camX = 0; camY = 0;
   mode = "level";
   showOnly(null);
@@ -307,18 +315,18 @@ function toMenu() {
   document.getElementById("hudTime").style.display = "";
   for (const el of document.querySelectorAll("[data-best]")) {
     const b = getBest(+el.dataset.best);
-    el.textContent = b ? b + " pts" : "";
+    el.textContent = b ? b + "s" : "";
   }
   showOnly("menu");
+  markChip();
 }
-function score() { return Math.floor(totalTime + Math.max(0, levelTime)) + fed * FOOD_POINTS; }
+function score() { return Math.floor(runTime); }
 function gameOver(won) {
   mode = "over"; grabbed = null;
   const s = score();
   setBest(startLevel, s);
-  document.getElementById("endTitle").textContent = won ? "You saved the menagerie!" : "Game Over";
-  document.getElementById("endText").textContent = "Your score is " + s +
-    " (" + Math.floor(totalTime + Math.max(0, levelTime)) + "s survived, " + fed + " fed)";
+  document.getElementById("endTitle").textContent = "Game Over";
+  document.getElementById("endText").textContent = (won ? "You finished Level 3! " : "") + "Your score is " + s;
   show("hud", false);
   showOnly("endMenu");
 }
@@ -327,14 +335,15 @@ function updateHud() {
   document.getElementById("hudLevel").textContent = "Level " + (levelIndex + 1);
   const eaten = foods.filter(f => f.collected).length;
   document.getElementById("hudFood").textContent = "Fed " + eaten + "/" + foods.length;
-  document.getElementById("hudTime").textContent = Math.max(0, Math.min(LEVEL_SECONDS, Math.ceil(LEVEL_SECONDS - levelTime))) + "s";
+  document.getElementById("hudTime").textContent = Math.max(0, Math.ceil(levelEnd() - runTime)) + "s";
 }
 
 // ---------- Physics ----------
-const READY_SECONDS = 1.2;  // short freeze at level start while the banner shows
+// Original: a level ends when the run timer reaches (screen index - 1) * 20s, so Level 1 ends at 20s,
+// Level 2 at 40s and Level 3 at 60s. Starting from Level 2 or 3 in the menu means a longer first level.
+function levelEnd() { return (levelIndex + 1) * LEVEL_SECONDS; }
 function step() {
   const inLevel = mode === "level";
-  if (inLevel && levelTime < 0) { levelTime += 1 / 60; return; }
   for (const a of animals) {
     if (grabbed && grabbed.animal === a) continue;
     a.vx += a.ax * TIMESTEP; a.vy += a.ay * TIMESTEP;
@@ -371,15 +380,12 @@ function step() {
       }
     }
 
-    if (inLevel && a.type !== "blackhole") {
-      const m = 1.5 * a.d, h = a.d / 2, sp = SZ.spikeW * 1.2 * 0.6;
+    if (inLevel) {
+      // Original: worried within 1.5 diameters of an edge, dead once its edge reaches the screen edge
+      // (this includes the black hole).
+      const m = 1.5 * a.d, h = a.d / 2;
       a.worriedEdge = a.x < m || a.x > W - m || a.y < m || a.y > H - m;
-      if (a.x - h < sp || a.x + h > W - sp || a.y - h < sp || a.y + h > H - sp) a.dead = true;
-    } else if (inLevel && a.type === "blackhole") {
-      // Keep the black hole on screen.
-      const h = a.d / 2;
-      if (a.x < h) { a.x = h; a.vx = 0; } if (a.x > W - h) { a.x = W - h; a.vx = 0; }
-      if (a.y < h) { a.y = h; a.vy = 0; } if (a.y > H - h) { a.y = H - h; a.vy = 0; }
+      if (a.x < h || a.x > W - h || a.y < h || a.y > H - h) a.dead = true;
     } else {
       // Space mode: bounce inside a world twice the size of the screen.
       a.worriedEdge = false;
@@ -400,26 +406,23 @@ function step() {
   for (const f of foods) {
     if (f.collected) { f.pop += 1 / 60; continue; }
     for (const a of animals) {
-      if (a.type !== "blackhole" && a.type !== "wolf" && Math.hypot(a.x - f.x, a.y - f.y) < 50 * S + a.d / 4) {
-        f.collected = true; fed++;
-        a.spin += (Math.random() < 0.5 ? -1 : 1) * 2;
+      // Original: any animal except the black hole within 50px eats it.
+      if (a.type !== "blackhole" && Math.hypot(a.x - f.x, a.y - f.y) < 50 * S) {
+        f.collected = true;
         break;
       }
     }
   }
 
   if (inLevel) {
-    levelTime += 1 / 60;
+    runTime += 1 / 60;
     if (animals.some(a => a.dead)) { gameOver(false); return; }
-    if (levelTime >= LEVEL_SECONDS) {
-      totalTime += levelTime;
-      if (levelIndex >= 2) { levelTime = 0; gameOver(true); return; }
+    if (runTime >= levelEnd()) {
+      if (levelIndex >= 2) { gameOver(true); return; }
       loadLevel(levelIndex + 1);
     }
-  } else {
-    // Sandbox: eaten animals just vanish.
-    animals = animals.filter(a => !a.dead);
   }
+  // Space mode: as in the original, nothing dies there.
 }
 
 function collide(a, b, dx, dy, r) {
@@ -491,8 +494,6 @@ function drawFood(f) {
     const t = f.pop / 0.5;
     ctx.globalAlpha = 1 - t;
     ctx.drawImage(im, f.x - f.d * (1 + t) / 2, f.y - f.d * (1 + t) / 2, f.d * (1 + t), f.d * (1 + t));
-    ctx.fillStyle = "#2a2a2a"; ctx.font = "bold " + Math.round(18 * Math.max(S, 0.8)) + "px sans-serif";
-    ctx.textAlign = "center"; ctx.fillText("+" + FOOD_POINTS, f.x, f.y - f.d * (0.6 + t));
     ctx.globalAlpha = 1;
     return;
   }
@@ -500,7 +501,7 @@ function drawFood(f) {
   ctx.drawImage(im, f.x - f.d / 2, f.y - f.d / 2 + bob, f.d, f.d);
 }
 function drawSpikes() {
-  const sw = SZ.spikeW, sh = sw * 1.2 * 0.6;
+  const sw = SZ.spikeW, sh = sw * 1.2;
   ctx.fillStyle = "#5a5a5a"; ctx.strokeStyle = "#2e2e2e"; ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = 0; x < W; x += sw) {
@@ -569,7 +570,6 @@ canvas.addEventListener("pointermove", e => {
 });
 function release(e) {
   if (lastPointer && e.pointerId === lastPointer.id) {
-    if (grabbed && grabbed.animal && !grabbed.relative) { grabbed.animal.vx *= 60; grabbed.animal.vy *= 60; }
     grabbed = null; lastPointer = null;
   }
 }
@@ -582,6 +582,21 @@ for (const c of document.querySelectorAll(".card")) {
     if (l === "space") startSpace(); else startLevelRun(+l);
   });
 }
+// Level picker under the cards: scrolls to that card and highlights the one in view.
+const cardsEl = document.getElementById("cards");
+const cardEls = [...document.querySelectorAll(".card")];
+const chips = [...document.querySelectorAll("[data-go]")];
+for (const ch of chips) {
+  ch.addEventListener("click", () => cardEls[+ch.dataset.go].scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" }));
+}
+function markChip() {
+  const mid = cardsEl.scrollLeft + cardsEl.clientWidth / 2;
+  let best = 0, bd = Infinity;
+  cardEls.forEach((c, i) => { const d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid); if (d < bd) { bd = d; best = i; } });
+  chips.forEach((ch, i) => ch.classList.toggle("on", i === best));
+}
+cardsEl.addEventListener("scroll", markChip, { passive: true });
+markChip();
 for (const b of document.querySelectorAll("[data-menu]")) b.addEventListener("click", toMenu);
 document.getElementById("pauseBtn").addEventListener("click", pause);
 document.getElementById("resumeBtn").addEventListener("click", resume);
